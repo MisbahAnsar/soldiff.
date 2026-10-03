@@ -1,0 +1,227 @@
+import type { DemoProgram, Finding, Severity } from "@/app/data/demos";
+
+export interface ProvenanceSummary {
+  upgradeSignature?: string;
+  upgradeSlot?: number;
+  bufferAddress?: string;
+  sha256?: string;
+  textSha256?: string;
+  rodataSha256?: string;
+  byteLength?: number;
+  writeTransactionCount?: number;
+  coverageComplete?: boolean;
+  reconstructionMethod?: string;
+  reconstructionWarnings?: string[];
+}
+
+export interface ReportContext {
+  prevUpgradeSignature?: string;
+  upgradeSignature?: string;
+  prevUpgradeSlot?: number | null;
+  upgradeSlot?: number | null;
+  analysisStartedAt?: number;
+  analysisCompletedAt?: number;
+  versionA?: ProvenanceSummary;
+  versionB?: ProvenanceSummary;
+  limitations?: string[];
+  framework?: string;
+}
+
+export interface FindingPresentation {
+  icon: string;
+  title: string;
+}
+
+const FINDING_PRESENTATION: Record<string, FindingPresentation> = {
+  BYTECODE_CHANGED: { icon: "🔴", title: "Bytecode Changed" },
+  TEXT_BYTES_CHANGED: { icon: "🔴", title: ".text Bytes Changed" },
+  TEXT_SECTION_SIZE_CHANGE: { icon: "🟠", title: "Code Section Resized" },
+  CODE_UNCHANGED_DATA_CHANGED: { icon: "🟡", title: "Code Unchanged · Data Changed" },
+  NEW_32_BYTE_PUBLIC_KEY_CANDIDATE: {
+    icon: "•",
+    title: "New 32-byte Public Key Candidate",
+  },
+  NEW_EXTERNAL_PROGRAM: { icon: "⚠️", title: "New External Program (legacy demo)" },
+  NEW_RODATA_STRINGS: { icon: "🟡", title: "New Read-Only Data (legacy)" },
+  REMOVED_RODATA_STRINGS: { icon: "🟡", title: "Removed Read-Only Data (legacy)" },
+  RODATA_BYTES_CHANGED: { icon: "🟡", title: ".rodata Bytes Changed" },
+  RODATA_STRING_CONTEXT: { icon: "•", title: ".rodata String Context (supplementary)" },
+  LARGE_TEXT_REGION_CHANGED: { icon: "🔵", title: "Large .text Region Changed" },
+  LOGIC_CHANGE: { icon: "🔵", title: "Logic Change (legacy demo)" },
+  SBF_INSTRUCTION_DIFF: { icon: "🔵", title: "SBF Instruction Diff" },
+  HISTORICAL_IDL_UNAVAILABLE: { icon: "•", title: "Historical IDL Unavailable" },
+  IDL_UNCHANGED: { icon: "✓", title: "IDL Unchanged" },
+  NO_CHANGE: { icon: "✓", title: "No Bytecode Changes" },
+  REMOVED_SIGNER_CHECK: { icon: "🔴", title: "Removed Signer Check" },
+  NEW_INVOKE_SIGNED_TARGET: { icon: "🔴", title: "New Invoke Signed Target" },
+  CHANGED_AUTHORITY_FIELD: { icon: "🔴", title: "Authority Field Changed" },
+  DISCRIMINATOR_CHANGE: { icon: "🟠", title: "Discriminator Changed" },
+  IDL_DISCRIMINATOR_CHANGE: { icon: "🟠", title: "IDL Discriminator Changed" },
+  NEW_MUTABLE_ACCOUNT: { icon: "🟠", title: "New Mutable Account" },
+  REMOVED_OWNER_CHECK: { icon: "🟠", title: "Removed Owner Check" },
+  ADDED_CLOSE_ACCOUNT: { icon: "🟡", title: "Close Account Added" },
+  CHANGED_SEEDS: { icon: "🟡", title: "PDA Seeds Changed" },
+};
+
+export function presentFinding(finding: Finding): FindingPresentation & Finding {
+  const preset = FINDING_PRESENTATION[finding.code];
+  return {
+    ...finding,
+    icon: preset?.icon ?? "•",
+    title: preset?.title ?? (finding.instruction || "Security Finding"),
+  };
+}
+
+export function getRiskLevel(score: number): {
+  label: string;
+  tone: "safe" | "review" | "critical";
+  emoji: string;
+} {
+  // Labels describe observed-change magnitude, not vulnerability severity.
+  if (score >= 80) return { label: "Large change", tone: "critical", emoji: "🔴" };
+  if (score >= 50) return { label: "Notable change", tone: "critical", emoji: "🔴" };
+  if (score >= 25) return { label: "Moderate change", tone: "review", emoji: "🟡" };
+  return { label: "Small change", tone: "safe", emoji: "🟢" };
+}
+
+export function getRiskBanner(score: number, findings: Finding[]): {
+  tone: "safe" | "review" | "critical";
+  title: string;
+  reason: string;
+} {
+  const noChangeOnly =
+    findings.length > 0 && findings.every((f) => f.code === "NO_CHANGE");
+  if (noChangeOnly) {
+    return {
+      tone: "safe",
+      title: "No significant changes",
+      reason:
+        "Reconstructed bytecode is identical between Version A and Version B. No upgrade diff is required.",
+    };
+  }
+
+  const critical = findings.filter((f) => f.severity === "CRITICAL").length;
+  const high = findings.filter((f) => f.severity === "HIGH").length;
+
+  if (score >= 80 || critical > 0) {
+    return {
+      tone: "critical",
+      title: "Large observed change — review required",
+      reason:
+        critical > 0
+          ? `${critical} critical finding(s) with strong evidence. Review before trusting this upgrade.`
+          : "Observed change score is elevated from binary findings. This is not a proven vulnerability score.",
+    };
+  }
+  if (score >= 25 || high > 0) {
+    return {
+      tone: "review",
+      title: "Review recommended",
+      reason:
+        high > 0
+          ? `${high} high-severity finding(s) warrant manual verification before deployment.`
+          : "Bytecode or data changes were observed. Confirm they match the intended release. Score is observational, not a vuln rating.",
+    };
+  }
+  return {
+    tone: "safe",
+    title: "Limited observed change signals",
+    reason:
+      "No critical or high-severity evidence-backed findings. Standard review is still recommended for production upgrades.",
+  };
+}
+
+export function parseReconstructionMeta(description: string): {
+  writesA: number | null;
+  writesB: number | null;
+  cacheHit: boolean;
+  raw: string | null;
+} {
+  const cacheHit =
+    /ELF from cache/i.test(description) ||
+    /before cached|after cached/i.test(description);
+
+  const before = description.match(/(\d+)\s+Write txs \(before\)/i);
+  const after = description.match(/(\d+)\s+Write txs \(after\)/i);
+  const paren = description.match(/\(([^)]+via Alchemy[^)]*)\)/i);
+
+  return {
+    writesA: before ? Number(before[1]) : null,
+    writesB: after ? Number(after[1]) : null,
+    cacheHit,
+    raw: paren?.[1] ?? null,
+  };
+}
+
+export function formatElapsed(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
+}
+
+export function formatTimestamp(ts?: number): string {
+  if (!ts) return new Date().toLocaleString("en-US");
+  return new Date(ts).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+export function sectionStatus(
+  lines: DemoProgram["instructionDiff"],
+  kind: "text" | "rodata"
+): { label: string; tone: "changed" | "unchanged" } {
+  const changed = lines.filter((l) => l.type === "added" || l.type === "removed").length;
+  if (changed === 0) return { label: "Unchanged", tone: "unchanged" };
+  return {
+    label: kind === "text" ? `Modified (+${changed} blocks)` : `Modified (+${changed} blocks)`,
+    tone: "changed",
+  };
+}
+
+export function executiveBullets(report: DemoProgram): string[] {
+  const bullets: string[] = [];
+  const textChanged = report.instructionDiff.some(
+    (l) => l.type === "added" || l.type === "removed"
+  );
+  const rodataChanged = report.accountDiff.some(
+    (l) => l.type === "added" || l.type === "removed"
+  );
+  bullets.push(textChanged ? "✓ .text bytes modified" : "✓ No .text changes");
+  bullets.push(rodataChanged ? "✓ .rodata modified" : "✓ No .rodata changes");
+  if (textChanged && !rodataChanged) {
+    bullets.push("✓ Code changed; data unchanged");
+  } else if (!textChanged && rodataChanged) {
+    bullets.push("✓ Code unchanged; data changed");
+  }
+  bullets.push(
+    `✓ Pubkey candidates flagged: ${report.summary.accountsAffected} (not proven CPI targets)`
+  );
+  bullets.push(
+    `✓ Synthetic blast-radius nodes flagged: ${report.blastNodes.filter((n) => n.changed).length} (not on-chain deps)`
+  );
+
+  return bullets;
+}
+
+export function severityLabel(sev: Severity): string {
+  const map: Record<Severity, string> = {
+    CRITICAL: "Critical",
+    HIGH: "High",
+    MEDIUM: "Medium",
+    LOW: "Low",
+    INFO: "Info",
+  };
+  return map[sev];
+}
+
+export const LOADING_STAGES_UI = [
+  "Parsing upgrade transactions…",
+  "Collecting buffer Write history…",
+  "Reconstructing Version A…",
+  "Reconstructing Version B…",
+  "Computing Diff…",
+  "Generating Report…",
+] as const;
