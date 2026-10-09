@@ -148,9 +148,11 @@ export default function Footer() {
               ],
             },
             {
-              label: "Resources",
+              label: "Connect",
               links: [
-                { label: "GitHub", href: "https://github.com/MisbahAnsar/soldiff" },
+                { label: "X / Twitter", href: "https://x.com/Misbahtwts" },
+                { label: "GitHub", href: "https://github.com/MisbahAnsar" },
+                { label: "Email", href: "mailto:misbaansari444@gmail.com" },
               ],
             },
             {
@@ -199,8 +201,9 @@ export default function Footer() {
                     <a
                       key={l.label}
                       href={l.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      {...(l.href.startsWith("mailto:")
+                        ? {}
+                        : { target: "_blank", rel: "noopener noreferrer" })}
                       style={{
                         fontSize: 13,
                         color: "var(--text-secondary)",
@@ -237,20 +240,51 @@ export default function Footer() {
               target="_blank"
               rel="noopener noreferrer"
               style={{ color: "var(--text-secondary)", textDecoration: "none" }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--accent)")}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-primary)")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-secondary)")}
             >
               @Misbahtwts
             </a>
             {" · MIT © 2026"}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11.5, color: "var(--text-muted)", fontFamily: "JetBrains Mono, monospace", letterSpacing: "0.02em" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--sev-safe)" }} />
-              All systems operational
-            </span>
-            <span style={{ color: "var(--text-faint)" }}>·</span>
-            <span>v0.3.1</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              fontSize: 12,
+              color: "var(--text-muted)",
+              flexWrap: "wrap",
+            }}
+          >
+            <a
+              href="https://x.com/Misbahtwts"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--text-secondary)", textDecoration: "none" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-primary)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-secondary)")}
+            >
+              X
+            </a>
+            <a
+              href="https://github.com/MisbahAnsar"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--text-secondary)", textDecoration: "none" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-primary)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-secondary)")}
+            >
+              GitHub
+            </a>
+            <a
+              href="mailto:misbaansari444@gmail.com"
+              style={{ color: "var(--text-secondary)", textDecoration: "none" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-primary)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-secondary)")}
+            >
+              Email
+            </a>
           </div>
         </div>
       </div>
